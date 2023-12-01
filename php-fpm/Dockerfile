@@ -14,7 +14,7 @@
 
 ARG LARADOCK_PHP_VERSION
 ARG BASE_IMAGE_TAG_PREFIX=latest
-FROM laradock/php-fpm:${BASE_IMAGE_TAG_PREFIX}-${LARADOCK_PHP_VERSION}
+FROM august5th/php-fpm:${BASE_IMAGE_TAG_PREFIX}-${LARADOCK_PHP_VERSION}
 
 LABEL maintainer="Mahmoud Zalt <mahmoud@zalt.me>"
 
@@ -392,7 +392,7 @@ RUN if [ ${INSTALL_MONGO} = true ]; then \
       if [ $(php -r "echo PHP_VERSION_ID - PHP_RELEASE_VERSION;") = "70000" ]; then \
         pecl install mongodb-1.9.2; \
       else \
-        pecl install mongodb; \
+        pecl install mongodb-1.11.1; \
       fi; \
       docker-php-ext-enable mongodb; \
       php -m | grep -oiE '^mongodb$'; \
@@ -831,7 +831,7 @@ RUN if [ ${INSTALL_IMAGEMAGICK} = true ]; then \
       make install && \
       rm -r /tmp/imagick; \
     else \
-      pecl install imagick; \
+      pecl install imagick-3.6.0; \
     fi && \
     docker-php-ext-enable imagick; \
     php -m | grep -q 'imagick' \

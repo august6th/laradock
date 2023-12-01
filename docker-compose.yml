@@ -692,6 +692,7 @@ services:
             - erp.pms.test
             - erp.admin.test
             - g.spm.test
+            - erp.iss.test
         backend:
           aliases: 
             - erp.uua.test
@@ -704,7 +705,7 @@ services:
             - erp.pms.test
             - erp.admin.test
             - g.spm.test
-
+            - erp.iss.test
 
 ### OpenResty Server #########################################
     openresty:
