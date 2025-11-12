@@ -124,7 +124,7 @@ fi
 # GMP (GNU Multiple Precision):
 ###########################################################################
 
-ARG INSTALL_GMP=false
+ARG INSTALL_GMP=true
 
 RUN if [ ${INSTALL_GMP} = true ]; then \
     # Install the GMP extension
@@ -334,7 +334,7 @@ RUN if [ ${INSTALL_PHPREDIS} = true ]; then \
     if [ $(php -r "echo PHP_MAJOR_VERSION;") = "5" ]; then \
       pecl install -o -f redis-4.3.0; \
     else \
-      pecl install -o -f redis; \
+      pecl install -o -f redis-5.3.7; \
     fi \
     && rm -rf /tmp/pear \
     && docker-php-ext-enable redis \
@@ -392,7 +392,7 @@ RUN if [ ${INSTALL_MONGO} = true ]; then \
       if [ $(php -r "echo PHP_VERSION_ID - PHP_RELEASE_VERSION;") = "70000" ]; then \
         pecl install mongodb-1.9.2; \
       else \
-        pecl install mongodb-1.11.1; \
+        pecl install mongodb-1.11.0; \
       fi; \
       docker-php-ext-enable mongodb; \
       php -m | grep -oiE '^mongodb$'; \
