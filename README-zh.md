@@ -6,6 +6,8 @@
 
 Laradock 能够帮你在 **Docker** 上快速搭建 **Laravel** 应用。
 
+ERP 的 PHP 8.4 并行环境、站点切换和团队同步步骤见 [PHP 8.4 操作说明](php84/README.md)。
+
 就像 Laravel Homestead 一样，但是 Docker 替换了 Vagrant。
 
 > 先在使用 Laradock，然后再学习它们。

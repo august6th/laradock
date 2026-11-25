@@ -33,7 +33,11 @@ USER root
 ARG CHANGE_SOURCE=false
 RUN if [ ${CHANGE_SOURCE} = true ]; then \
     # Change application source from deb.debian.org to aliyun source
-    sed -i 's/ports.ubuntu.com/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list; \
+    for source in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+      if [ -f "$source" ]; then \
+        sed -i 's|ports.ubuntu.com|mirrors.tuna.tsinghua.edu.cn|g' "$source"; \
+      fi; \
+    done; \
   fi;
 
 ###########################################################################
@@ -49,7 +53,10 @@ ENV PGID ${PGID}
 # always run apt update when start and after add new source list, then clean up at end.
 RUN set -xe; \
     apt-get update -yqq && \
-    pecl channel-update pecl.php.net && \
+    if [ "${LARADOCK_PHP_VERSION}" != "8.4" ]; then pecl channel-update pecl.php.net; fi && \
+    if [ "${LARADOCK_PHP_VERSION}" = "8.4" ] && id -u ubuntu >/dev/null 2>&1; then \
+      userdel ubuntu; \
+    fi && \
     groupadd -g ${PGID} laradock && \
     useradd -l -u ${PUID} -g laradock -m laradock -G docker_env && \
     usermod -p "*" laradock -s /bin/bash && \
@@ -72,6 +79,11 @@ RUN set -xe; \
       # nasm
       nasm && \
       php -m | grep -q 'zip'
+
+# Refresh the packaged CLI as well as extensions when adding PHP 8.4.
+RUN if [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+      apt-get install -yqq php${LARADOCK_PHP_VERSION}-cli; \
+    fi
 
 #
 #--------------------------------------------------------------------------
@@ -357,7 +369,9 @@ ARG INSTALL_XDEBUG=false
 
 RUN if [ ${INSTALL_XDEBUG} = true ]; then \
   # Install the xdebug extension
-  if [ $(php -r "echo PHP_MAJOR_VERSION;") = "8" ]; then \
+  if [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+    apt-get install -yqq php${LARADOCK_PHP_VERSION}-xdebug; \
+  elif [ $(php -r "echo PHP_MAJOR_VERSION;") = "8" ]; then \
     pecl install xdebug-3.0.0; \
   else \
     if [ $(php -r "echo PHP_MAJOR_VERSION;") = "5" ]; then \
@@ -379,7 +393,9 @@ RUN if [ ${INSTALL_XDEBUG} = true ]; then \
       fi \
     fi \
   fi && \
-  echo "zend_extension=xdebug.so" >> /etc/php/${LARADOCK_PHP_VERSION}/cli/conf.d/20-xdebug.ini \
+  if [ "${LARADOCK_PHP_VERSION}" != "8.4" ]; then \
+    echo "zend_extension=xdebug.so" >> /etc/php/${LARADOCK_PHP_VERSION}/cli/conf.d/20-xdebug.ini; \
+  fi \
 ;fi
 
 # ADD for REMOTE debugging
@@ -649,7 +665,12 @@ RUN if [ ${INSTALL_AST} = true ]; then \
     # AST extension requires PHP 7.0.0 or newer
     if [ $(php -r "echo PHP_MAJOR_VERSION;") != "5" ]; then \
         # Install AST extension
-        printf "\n" | pecl -q install ast-${AST_VERSION} && \
+        if [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+          curl -fsSL --retry 3 --retry-all-errors "https://pecl.php.net/get/ast-${AST_VERSION}.tgz" -o /tmp/ast.tgz && \
+          pecl -q install /tmp/ast.tgz; \
+        else \
+          printf "\n" | pecl -q install ast-${AST_VERSION}; \
+        fi && \
         echo "extension=ast.so" >> /etc/php/${LARADOCK_PHP_VERSION}/mods-available/ast.ini && \
         phpenmod -v ${LARADOCK_PHP_VERSION} -s cli ast \
     ;fi \
@@ -767,7 +788,7 @@ RUN if [ ${INSTALL_NODE} = true ]; then \
         && if [ ${INSTALL_NPM_ANGULAR_CLI} = true ]; then \
         npm install -g @angular/cli \
         ;fi \
-        && ln -s `npm bin --global` /home/laradock/.node-bin \
+        && ln -s "$(npm prefix --global)/bin" /home/laradock/.node-bin \
 ;fi
 
 # Wouldn't execute when added to the RUN statement in the above block
@@ -804,7 +825,7 @@ RUN if [ ${INSTALL_NODE} = true ]; then \
     ln -s $NODE_MODS_DIR/vue-cli/bin/vue-list /usr/local/bin/vue-list \
 ;fi
 
-RUN if [ ${NPM_REGISTRY} ]; then \
+RUN if [ "${INSTALL_NODE}" = true ] && [ "${NPM_REGISTRY}" ]; then \
     . ~/.bashrc && npm config set registry ${NPM_REGISTRY} \
 ;fi
 
@@ -1287,6 +1308,9 @@ RUN set -eux; \
         pecl install memcache-4.0.5.1; \
       elif [ $(php -r "echo PHP_VERSION_ID - PHP_RELEASE_VERSION;") = "70100" ]; then \
         pecl install memcache-4.0.5.2; \
+      elif [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+        curl -fsSL --retry 3 --retry-all-errors https://pecl.php.net/get/memcache-8.2.tgz -o /tmp/memcache.tgz && \
+        pecl install /tmp/memcache.tgz; \
       else \
         pecl install memcache; \
       fi; \
@@ -1575,6 +1599,9 @@ RUN if [ ${INSTALL_PROTOC} = true ]; then \
 
 RUN set -xe; php -v | head -n 1 | grep -q "PHP ${LARADOCK_PHP_VERSION}."
 
+ARG PHP_MIN_VERSION=0
+RUN php -r 'exit(version_compare(PHP_VERSION, $argv[1], ">=") ? 0 : 1);' "${PHP_MIN_VERSION}"
+
 ###########################################################################
 # Oh My ZSH!
 ###########################################################################
@@ -1749,10 +1776,19 @@ RUN if [ ${INSTALL_TRADER} = true ]; then \
 
 USER root
 
+# Include the reviewed Noble security fix when rebuilding the PHP 8.4 service.
+RUN if [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+      . /etc/os-release && \
+      test "${ID}:${VERSION_CODENAME}" = "ubuntu:noble" && \
+      apt-get update -yqq && \
+      apt-get install -yqq --only-upgrade libbrotli1 && \
+      dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge 1.1.0-2ubuntu0.1; \
+    fi
+
 # Clean up
 RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    rm /var/log/lastlog /var/log/faillog
+    rm -f /var/log/lastlog /var/log/faillog
 
 # Set default work directory
 WORKDIR /var/www

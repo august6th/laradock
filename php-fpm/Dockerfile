@@ -14,7 +14,8 @@
 
 ARG LARADOCK_PHP_VERSION
 ARG BASE_IMAGE_TAG_PREFIX=latest
-FROM august5th/php-fpm:${BASE_IMAGE_TAG_PREFIX}-${LARADOCK_PHP_VERSION}
+ARG BASE_IMAGE=august5th/php-fpm:${BASE_IMAGE_TAG_PREFIX}-${LARADOCK_PHP_VERSION}
+FROM ${BASE_IMAGE}
 
 LABEL maintainer="Mahmoud Zalt <mahmoud@zalt.me>"
 
@@ -28,15 +29,17 @@ ENV DEBIAN_FRONTEND noninteractive
 ARG CHANGE_SOURCE=false
 RUN if [ ${CHANGE_SOURCE} = true ]; then \
     # Change application source from deb.debian.org to aliyun source
-    sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/' /etc/apt/sources.list && \
-    sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/' /etc/apt/sources.list && \
-    sed -i 's/security-cdn.debian.org/mirrors.tuna.tsinghua.edu.cn/' /etc/apt/sources.list \
+    for source in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+      if [ -f "$source" ]; then \
+        sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security-cdn.debian.org|mirrors.tuna.tsinghua.edu.cn|g' "$source"; \
+      fi; \
+    done \
 ;fi
 
 # always run apt update when start and after add new source list, then clean up at end.
 RUN set -xe; \
     apt-get update -yqq && \
-    pecl channel-update pecl.php.net && \
+    if [ "${LARADOCK_PHP_VERSION}" != "8.4" ]; then pecl channel-update pecl.php.net; fi && \
     apt-get install -yqq \
       apt-utils \
       gnupg2 \
@@ -61,6 +64,14 @@ RUN set -xe; \
       # Install the zip extension
       docker-php-ext-install zip && \
       php -m | grep -q 'zip'
+
+# The official PHP 8.4 base needs the mandatory extensions supplied by older
+# Laradock base images. Optional extensions still use the switches below.
+RUN if [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+      apt-get install -yqq libfcgi-bin libpng-dev libjpeg62-turbo-dev libfreetype6-dev libonig-dev && \
+      docker-php-ext-configure gd --with-freetype --with-jpeg && \
+      docker-php-ext-install -j4 gd pdo_mysql mbstring; \
+    fi
 
 #
 #--------------------------------------------------------------------------
@@ -242,11 +253,15 @@ RUN if [ ${INSTALL_PG_CLIENT} = true ]; then \
 ###########################################################################
 
 ARG INSTALL_XDEBUG=false
+ARG XDEBUG_VERSION=3.5.3
 
 RUN if [ ${INSTALL_XDEBUG} = true ]; then \
   # Install the xdebug extension
   # https://xdebug.org/docs/compat
-  if [ $(php -r "echo PHP_MAJOR_VERSION;") = "8" ] || { [ $(php -r "echo PHP_MAJOR_VERSION;") = "7" ] && { [ $(php -r "echo PHP_MINOR_VERSION;") = "4" ] || [ $(php -r "echo PHP_MINOR_VERSION;") = "3" ] ;} ;}; then \
+  if [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+    curl -fsSL --retry 3 --retry-all-errors "https://pecl.php.net/get/xdebug-${XDEBUG_VERSION}.tgz" -o /tmp/xdebug.tgz && \
+    pecl install /tmp/xdebug.tgz; \
+  elif [ $(php -r "echo PHP_MAJOR_VERSION;") = "8" ] || { [ $(php -r "echo PHP_MAJOR_VERSION;") = "7" ] && { [ $(php -r "echo PHP_MINOR_VERSION;") = "4" ] || [ $(php -r "echo PHP_MINOR_VERSION;") = "3" ] ;} ;}; then \
     pecl install xdebug-3.1.1; \
   else \
     if [ $(php -r "echo PHP_MAJOR_VERSION;") = "5" ]; then \
@@ -333,6 +348,9 @@ RUN if [ ${INSTALL_PHPREDIS} = true ]; then \
     # Install Php Redis Extension
     if [ $(php -r "echo PHP_MAJOR_VERSION;") = "5" ]; then \
       pecl install -o -f redis-4.3.0; \
+    elif [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+      curl -fsSL --retry 3 --retry-all-errors https://pecl.php.net/get/redis-6.1.0.tgz -o /tmp/redis.tgz && \
+      pecl install /tmp/redis.tgz; \
     else \
       pecl install -o -f redis-5.3.7; \
     fi \
@@ -546,6 +564,10 @@ RUN if [ ${INSTALL_MEMCACHED} = true ]; then \
     # Install the php memcached extension
     if [ $(php -r "echo PHP_MAJOR_VERSION;") = "5" ]; then \
       echo '' | pecl -q install memcached-2.2.0; \
+    elif [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+      apt-get install -yqq libmemcached-dev zlib1g-dev libssl-dev && \
+      curl -fsSL --retry 3 --retry-all-errors https://pecl.php.net/get/memcached-3.4.0.tgz -o /tmp/memcached.tgz && \
+      pecl install /tmp/memcached.tgz; \
     else \
       echo '' | pecl -q install memcached; \
     fi \
@@ -565,6 +587,9 @@ RUN set -eux; \
         pecl install memcache-4.0.5.1; \
       elif [ $(php -r "echo PHP_VERSION_ID - PHP_RELEASE_VERSION;") = "70100" ]; then \
         pecl install memcache-4.0.5.2; \
+      elif [ "${LARADOCK_PHP_VERSION}" = "8.4" ]; then \
+        curl -fsSL --retry 3 --retry-all-errors https://pecl.php.net/get/memcache-8.2.tgz -o /tmp/memcache.tgz && \
+        pecl install /tmp/memcache.tgz; \
       else \
         pecl install memcache; \
       fi; \
@@ -1253,6 +1278,9 @@ RUN if [ ${DOWNGRADE_OPENSSL_TLS_AND_SECLEVEL} = true ]; then \
 
 RUN set -xe; php -v | head -n 1 | grep -q "PHP ${LARADOCK_PHP_VERSION}."
 
+ARG PHP_MIN_VERSION=0
+RUN php -r 'exit(version_compare(PHP_VERSION, $argv[1], ">=") ? 0 : 1);' "${PHP_MIN_VERSION}"
+
 #
 #--------------------------------------------------------------------------
 # Final Touch
@@ -1267,7 +1295,7 @@ USER root
 # Clean up
 RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
-    rm /var/log/lastlog /var/log/faillog
+    rm -f /var/log/lastlog /var/log/faillog
 
 # Configure non-root user.
 ARG PUID=1000

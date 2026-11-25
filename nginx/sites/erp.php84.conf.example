@@ -1,0 +1,33 @@
+# Enable only after the application and dependencies support PHP 8.4.
+# Set server_name and root for the intended project.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name erp.iss84.test;
+    root /var/www/erp/iss/public;
+    index index.php;
+    client_max_body_size 64m;
+
+    resolver 127.0.0.11 ipv6=off valid=10s;
+    set $erp_php_upstream php-fpm-84:9000;
+
+    location / {
+        try_files $uri $uri/ /index.php$is_args$args;
+    }
+
+    location = /index.php {
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+        fastcgi_param ENV dev;
+        fastcgi_pass $erp_php_upstream;
+        fastcgi_read_timeout 600s;
+    }
+
+    location ~ \.php$ {
+        return 404;
+    }
+
+    location ~ (^|/)\. {
+        return 404;
+    }
+}
